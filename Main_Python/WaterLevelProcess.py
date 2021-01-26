@@ -5,6 +5,8 @@ import imutils as imu
 from scipy.spatial import distance as dist
 import numpy as np
 import pathlib
+import matplotlib.pyplot as plt
+
 
 def preprocessing(img):
     img1 = img[0: 350, :]
@@ -33,7 +35,6 @@ def preprocessing(img):
     hold[450::, :] = img3
     hold = imu.auto_canny(hold)
     return hold
-
 def detect_lib(edge):
     cnts = cv2.findContours(edge, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     cnts = imu.grab_contours(cnts)
@@ -44,7 +45,6 @@ def detect_lib(edge):
         box = cv2.boxPoints(box)
         box = np.array(box, dtype="int")
         box = perspective.order_points(box)
-        cv2.drawContours(edge, [box.astype('int')], -1, (255, 0, 0), 1)
         box = box.astype(int)
 
         box1 = cv2.minAreaRect(cnts[1])
@@ -54,8 +54,10 @@ def detect_lib(edge):
         cv2.drawContours(edge, [box1.astype('int')], -1, (255, 0, 0), 1)
         box1 = box1.astype(int)
         if box[0][1] < box1[0][1]:
+            cv2.drawContours(edge, [box], -1, (255, 0, 0), 1)
             return box
         if box[0][1] > box1[0][1]:
+            cv2.drawContours(edge, [box1], -1, (255, 0, 0), 1)
             return box1
 
     else:
@@ -70,22 +72,24 @@ def detect_waterlevel(edge):
         box = cv2.boxPoints(box)
         box = np.array(box, dtype="int")
         box = perspective.order_points(box)
-        cv2.drawContours(edge, [box.astype('int')], -1, (255, 0, 0), 1)
         box = box.astype(int)
+        area_box = cv2.contourArea(cnts[0])
+
 
         box1 = cv2.minAreaRect(cnts[1])
         box1 = cv2.boxPoints(box1)
         box1 = np.array(box1, dtype="int")
         box1 = perspective.order_points(box1)
-        cv2.drawContours(edge, [box1.astype('int')], -1, (255, 0, 0), 1)
         box1 = box1.astype(int)
-        if box[0][1] > box1[0][1]:
+        area_box1 = cv2.contourArea(cnts[1])
+
+
+        if (box[0][1] > box1[0][1]) and (area_box > 10000):
             return box
-        if box[0][1] < box1[0][1]:
+        if (box[0][1] < box1[0][1]) and (area_box1 > 10000):
             return box1
     else:
         return None
-
 def take4point(pc):
     # Sắp xếp các điểm có từ nhỏ đến lớn theo giá trị của trụ x trong ma trận
     xSorted = pc[np.argsort(pc[:, 0]), :]
@@ -109,19 +113,21 @@ def water_level_val(pt1, pt2, mid_ptX, mid_ptY):
     b = pt1[0] - pt2[0]
     c = a * pt1[0] + b * pt1[1]
     level_val = (np.abs(a*mid_ptX + b*mid_ptY + c))/np.sqrt(a**2 + b**2)
-    cmperpixel = 9/2056
+    cmperpixel = 6/1581
     level_val_cm = level_val*cmperpixel
     return level_val_cm
 def WaterLevelProcess(img,count,path):
 
     img = img[400:980, 828:1828]
-    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    img_gray = img_gray[400:980, 828:1828]
-    edge = preprocessing(img_gray)
-    edge = 2 * edge
-    box_of_waterlevel = detect_waterlevel(edge)
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    edge = preprocessing(img)
     box_of_lid = detect_lib(edge)
-    if box_of_lid is not None:
+    box_of_waterlevel = detect_waterlevel(edge)
+    if box_of_lid is not None and box_of_waterlevel is not None:
+        cv2.drawContours(img_rgb, [box_of_waterlevel], -1, (0, 255, 0), 3)
+        cv2.drawContours(img_rgb, [box_of_lid], -1, (0, 255, 0), 3)
+
+        # Tim vi tri cua 2 diem thuoc co chai
         [tll, bll, brl, trl] = take4point(box_of_lid)
         pt1 = []
         pt1.append(tll[0])
@@ -131,17 +137,23 @@ def WaterLevelProcess(img,count,path):
         pt2.append(trl[0])
         pt2.append(int(trl[1] + (brl[1] - trl[1]) * 0.75))
         pt2 = tuple(pt2)
-        cv2.line(edge, pt1, pt2, 255, 2)
-    else:
-        pass
 
-    if box_of_waterlevel is not None:
+        # Tim vi tri mat cong duoi cua muc nuoc
         [_, blw, brw, _] = take4point(box_of_waterlevel)
         mid_x, mid_y = mid_point(blw, brw)
         cv2.circle(edge, (int(mid_x), int(mid_y)), 3, 255, -1)
+
+        # Tinh khoang cach tu diem muc nuoc va duong co chai
+        mid_x_lib, mid_y_lid = mid_point(tll, trl)
         p2data = water_level_val(pt1, pt2, int(mid_x), int(mid_y))
         p2data = round(p2data, 4)
-        print(p2data)
+        if 3.3 < p2data < 3.7:
+            cv2.putText(img_rgb, 'True', (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        else:
+            cv2.putText(img_rgb, 'False', (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        # Tinh do ho nam cua lo
+        p3data = water_level_val(pt1, pt2, int(mid_x_lib), int(mid_y_lid))
+
         path = path + '_result'
         pathlib.Path(path).mkdir(parents=True, exist_ok=True)
         name = os.path.join(path, str(count) + '.tiff')
@@ -152,10 +164,12 @@ def WaterLevelProcess(img,count,path):
             print(name, ': Save successfully')
         except Exception as e:
             print('Failed: ', str(e))
-        return 'RightWL', edge, str(p2data)
 
+        return 'RightWL', img_rgb, str(p2data), str(p3data)
     else:
+        cv2.putText(img_rgb, 'False', (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
         p2data = 'Water level is wrong'
+        p3data = 'Cap not found'
         path = path + '_result'
         pathlib.Path(path).mkdir(parents=True, exist_ok=True)
         name = os.path.join(path, str(count) + '.tiff')
@@ -165,4 +179,4 @@ def WaterLevelProcess(img,count,path):
             print(name, ': Save successfully')
         except Exception as e:
             print('Failed: ', str(e))
-        return 'FalseWL', edge, p2data
+        return 'FalseWL', img_rgb, p2data, p3data

@@ -3,6 +3,7 @@ import serial
 import serial.tools.list_ports
 import requests
 from selenium import webdriver
+import numpy as np
 
 def arduinoPort():
     ports = serial.tools.list_ports.comports()
@@ -16,7 +17,6 @@ def arduinoPort():
     return ser1
 
 def capture(camera,Exposure,Gamma,Gain,DigitalShift):
-
     camera.Open()
     camera.ExposureTime = Exposure
     camera.Gamma = Gamma
@@ -30,13 +30,16 @@ def capture(camera,Exposure,Gamma,Gain,DigitalShift):
     numberOfImagesToGrab = 1
 
     camera.StartGrabbingMax(numberOfImagesToGrab)
-
+    converter = pylon.ImageFormatConverter()
+    converter.OutputPixelFormat = pylon.PixelType_Mono8
+    converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
     while camera.IsGrabbing():
         grabResult = camera.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
         check = grabResult.GrabSucceeded()
         if check is True:
-            print('Capture Successfully')
-            return grabResult
+            #print('Capture Successfully')
+
+            return grabResult.Array
 
 def ledcontrol_send(Commands):
     r = requests.get('http://192.168.5.10/', auth=('admin', 'admin'))

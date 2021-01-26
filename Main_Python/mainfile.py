@@ -2,18 +2,19 @@ from pypylon import pylon
 import time
 import cv2
 import os
-#import concurrent.futures
+import concurrent.futures
 import datetime
 import pathlib
 import pandas as pd
-#import WaterLevelProcess as WLP
+import WaterLevelProcess as WLP
 import firstsetup as fst
-import keyboard
-#import BarcodeProcess as BCP
+import matplotlib.pyplot as plt
+import numpy as np
+import BarcodeProcess as BCP
 
 def FirstProcess(st, ser1, path, camera):
     BottleCount = int(ser1.readline())
-    time.sleep(2)
+    time.sleep(1.9)
     print('BottleCount', BottleCount)
     print('time1', time.perf_counter())
     imMode1 = fst.capture(camera, st['1ple'], st['1plgm'], st['1plgn'], st['1plds'])
@@ -21,15 +22,14 @@ def FirstProcess(st, ser1, path, camera):
     imMode3 = fst.capture(camera, st['3ple'], st['3plgm'], st['3plgn'], st['3plds'])
     print('time3', time.perf_counter())
     imMode2 = fst.capture(camera, st['2ple'], st['2plgm'], st['2plgn'], st['2plds'])
+
     try:
-        # start=time.perf_counter()
-        # # with concurrent.futures.ProcessPoolExecutor() as executor:
-        # #     p2 = executor.submit(WLP.WaterLevelProcess, imMode2.Array, BottleCount, path)
-        # #     p1 = executor.submit(BCP.Barcode, imMode1.Array)
-        # stop = time.perf_counter()
-        # print(round(stop - start, 2))
-        # con2, p2img, p2data = p2.result()
-        # con1, p1img, p1data = p1.result()
+        start = time.perf_counter()
+        con2, p2img, p2data, p3data = WLP.WaterLevelProcess(imMode3, BottleCount, path)
+        con1, p1img, p1data = BCP.Barcode(imMode1)
+        stop = time.perf_counter()
+        print('time :', round(stop - start, 2))
+
 
         pathlib.Path(path + '\\Mode1\\').mkdir(parents=True,exist_ok=True)
         pathlib.Path(path + '\\Mode2\\').mkdir(parents=True,exist_ok=True)
@@ -52,7 +52,7 @@ def FirstProcess(st, ser1, path, camera):
         except Exception as e:
             print('Failed: ', str(e))
         cv2.waitKey(10)
-        return BottleCount, imMode1, con1, p1img, p1data, imMode2, con2, p2img, p2data, imMode3
+        return BottleCount, imMode1, con1, p1img, p1data, imMode2, con2, p2img, p2data, p3data, imMode3
     except:
         print('Cannot processed')
         try:
@@ -72,7 +72,8 @@ def FirstProcess(st, ser1, path, camera):
         except Exception as e:
             print('Failed: ', str(e))
         cv2.waitKey(10)
-        return BottleCount, imMode1, 'FalseBC', None, 'Object not found', imMode2, 'FalseWL', None, 'Object not found', imMode3
+        return BottleCount, imMode1, 'FalseBC', None, 'Object not found', imMode2, 'FalseWL', None, 'Object not found', \
+               'Cap Not Found', imMode3
 
 
 def ExportCSV(data):
@@ -82,12 +83,9 @@ def ExportCSV(data):
 
 
 if __name__ == '__main__':
-    # Window1 = pylon.PylonImageWindow()
-    # Window1.Create(1)
-    # Window2 = pylon.PylonImageWindow()
-    # Window2.Create(2)
-    # Window3 = pylon.PylonImageWindow()
-    # Window3.Create(3)
+    data = {}
+    data['Name'] = []
+    data['Water level'] = []
     camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
     ser1 = fst.arduinoPort()
     st = fst.SaveFile_read()
@@ -105,21 +103,24 @@ if __name__ == '__main__':
         else:
             check = 0
 
-
     while condition == 'Start':
-        BottleCount, imMode1, con1, p1img, p1data, imMode2, con2, p2img, p2data, imMode3 = FirstProcess(st, ser1, path,camera)
-
-        if (BottleCount %2) == 0:
+        BottleCount, imMode1, con1, p1img, p1data, imMode2, con2, p2img, p2data, p3data, imMode3 = FirstProcess(st, ser1,
+                                                                                                                path,
+                                                                                                                camera)
+        print('barcode: ', p1data)
+        print('WaterLevel: ', p2data)
+        print('Cap:', p3data)
+        if (p2data =='Water level is wrong'):
             ser1.write(str(BottleCount).encode())
-        # Window1.SetImage(imMode1)
-        # Window1.Show()
-        # Window2.SetImage(imMode2)
-        # Window2.Show()
-        # Window3.SetImage(imMode3)
-        # Window3.Show()
+        cv2.imshow('backlight', p2img)
+        cv2.waitKey(1)
 
-    #     data['Barcode'].append(p1data)
-    #     data['Water level'].append(p2data)
-    # ExportCSV(data)
+
+        data['Name'].append(p1data)
+        data['Water level'].append(p2data)
+        if BottleCount == 30:
+            ser1.write('Stop\n'.encode())
+            break
+    ExportCSV(data)
     fst.ledcontrol_send(['cl'])
     print('Program has stopped')
